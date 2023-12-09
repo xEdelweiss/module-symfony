@@ -39,7 +39,7 @@ trait EventsAssertionsTrait
         if ($expected === null) {
             $this->assertSame(0, $data->count());
         } else {
-            $this->assertEventNotTriggered($data, $expected);
+            $this->assertEventTriggered($data, $expected, true);
         }
     }
 
@@ -177,22 +177,14 @@ trait EventsAssertionsTrait
         $this->assertListenerCalled($data, $expected, $withEvents);
     }
 
-    protected function assertEventNotTriggered(Data $data, array $expected): void
-    {
-        $actual = $data->getValue(true);
+    protected function assertEventTriggered(
+        Data $data,
+        array $expected,
+        bool $invertAssertion = false
+    ): void {
+        $assertTrue = !$invertAssertion;
 
-        foreach ($expected as $expectedEvent) {
-            $expectedEvent = is_object($expectedEvent) ? $expectedEvent::class : $expectedEvent;
-            $this->assertFalse(
-                $this->eventWasTriggered($actual, (string)$expectedEvent),
-                "The '{$expectedEvent}' event triggered"
-            );
-        }
-    }
-
-    protected function assertEventTriggered(Data $data, array $expected): void
-    {
-        if ($data->count() === 0) {
+        if ($assertTrue && $data->count() === 0) {
             $this->fail('No event was triggered');
         }
 
@@ -200,10 +192,17 @@ trait EventsAssertionsTrait
 
         foreach ($expected as $expectedEvent) {
             $expectedEvent = is_object($expectedEvent) ? $expectedEvent::class : $expectedEvent;
-            $this->assertTrue(
-                $this->eventWasTriggered($actual, (string)$expectedEvent),
-                "The '{$expectedEvent}' event did not trigger"
-            );
+            $message = $assertTrue
+                ? "The '{$expectedEvent}' event did not trigger"
+                : "The '{$expectedEvent}' event triggered";
+
+            $condition = $this->eventWasTriggered($actual, (string)$expectedEvent);
+
+            if ($assertTrue) {
+                $this->assertTrue($condition, $message);
+            } else {
+                $this->assertFalse($condition, $message);
+            }
         }
     }
 
