@@ -44,6 +44,39 @@ trait EventsAssertionsTrait
     }
 
     /**
+     * Verifies that there were no events during the test.
+     * Orphan events are included. Use `dontSeeOrphanEvent` to exclude them.
+     *
+     * ```php
+     *  <?php
+     *  $I->dontSeeEvent();
+     *  $I->dontSeeEvent('App\MyEvent');
+     *  $I->dontSeeEvent(new App\Events\MyEvent());
+     *  $I->dontSeeEvent(['App\MyEvent', 'App\MyOtherEvent']);
+     *  ```
+     *
+     * @param array|object|string|null $expected
+     */
+    public function dontSeeEvent(array|object|string $expected = null): void
+    {
+        $eventCollector = $this->grabEventCollector(__FUNCTION__);
+
+        $data = [
+            $eventCollector->getOrphanedEvents(),
+            $eventCollector->getCalledListeners(),
+        ];
+        $expected = is_array($expected) ? $expected : [$expected];
+
+        if ($expected === null) {
+            foreach ($data as $dataItem) {
+                $this->assertSame(0, $dataItem->count());
+            }
+        } else {
+            $this->assertEventTriggered($data, $expected, true);
+        }
+    }
+
+    /**
      * Verifies that one or more event listeners were not called during the test.
      *
      * ```php
@@ -124,6 +157,33 @@ trait EventsAssertionsTrait
     }
 
     /**
+     * Verifies that one or more events were dispatched during the test.
+     * Orphan events are included. Use `seeOrphanEvent` to exclude them.
+     *
+     * ```php
+     *  <?php
+     *  $I->seeEvent('App\MyEvent');
+     *  $I->seeEvent(new App\Events\MyEvent());
+     *  $I->seeEvent(['App\MyEvent', 'App\MyOtherEvent']);
+     *  ```
+     *
+     * @param array|object|string $expected
+     * @see seeOrphanEvent
+     */
+    public function seeEvent(array|object|string $expected): void
+    {
+        $eventCollector = $this->grabEventCollector(__FUNCTION__);
+
+        $data = [
+            $eventCollector->getOrphanedEvents(),
+            $eventCollector->getCalledListeners(),
+        ];
+        $expected = is_array($expected) ? $expected : [$expected];
+
+        $this->assertEventTriggered($data, $expected);
+    }
+
+    /**
      * Verifies that one or more event listeners were called during the test.
      *
      * ```php
@@ -178,17 +238,22 @@ trait EventsAssertionsTrait
     }
 
     protected function assertEventTriggered(
-        Data $data,
+        array|Data $data,
         array $expected,
         bool $invertAssertion = false
     ): void {
         $assertTrue = !$invertAssertion;
+        $data = is_array($data) ? $data : [$data];
+        $totalEvents = array_sum(array_map(fn (Data $data) => $data->count(), $data));
 
-        if ($assertTrue && $data->count() === 0) {
+        if ($assertTrue && $totalEvents === 0) {
             $this->fail('No event was triggered');
         }
 
-        $actual = $data->getValue(true);
+        $actual = array_map(
+            fn (Data $data) => $data->getValue(true),
+            $data
+        );
 
         foreach ($expected as $expectedEvent) {
             $expectedEvent = is_object($expectedEvent) ? $expectedEvent::class : $expectedEvent;
@@ -196,7 +261,11 @@ trait EventsAssertionsTrait
                 ? "The '{$expectedEvent}' event did not trigger"
                 : "The '{$expectedEvent}' event triggered";
 
-            $condition = $this->eventWasTriggered($actual, (string)$expectedEvent);
+            $condition = false;
+
+            foreach ($actual as $actualEvents) {
+                $condition = $condition || $this->eventWasTriggered($actualEvents, (string)$expectedEvent);
+            }
 
             if ($assertTrue) {
                 $this->assertTrue($condition, $message);
@@ -245,13 +314,11 @@ trait EventsAssertionsTrait
 
         foreach ($actual as $actualEvent) {
             if (is_array($actualEvent)) { // Called Listeners
-                if (str_starts_with($actualEvent['pretty'], $expectedEvent)) {
+                if ($actualEvent['event'] === $expectedEvent) {
                     $triggered = true;
                 }
-            } else { // Orphan Events
-                if ($actualEvent === $expectedEvent) {
-                    $triggered = true;
-                }
+            } elseif ($actualEvent === $expectedEvent) { // Orphan Events
+                $triggered = true;
             }
         }
 
